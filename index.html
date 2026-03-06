@@ -1,0 +1,2349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warlord Mobile</title>
+    <style>
+
+
+        @keyframes rippleEffect {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+        }
+        /* 1. LAYOUT & WORLD */
+        body { margin: 0; overflow: hidden; background: #222; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        
+        #game-world {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: #1a1a1a; /* Dark background for the viewport */
+            box-sizing: border-box;
+            overflow: hidden;
+            cursor: crosshair;
+            pointer-events: auto; /* ADD THIS - Ensure clicks are captured */
+            z-index: 1; /* ADD THIS - Lower than ui-layer */
+        }
+
+        #game-canvas {
+            position: absolute;
+            width: 2000px;  /* Your terrain size - adjust as needed */
+            height: 2000px; /* Your terrain size - adjust as needed */
+            top: 0;
+            left: 0;
+            background: #2d5a27; /* Grass green */
+            border: 8px solid #8B4513;  /* ADD THIS */
+            box-sizing: border-box;     /* ADD THIS */
+            background-image: 
+                repeating-linear-gradient(0deg, transparent, transparent 99px, rgba(255,255,255,0.1) 99px, rgba(255,255,255,0.1) 100px),
+                repeating-linear-gradient(90deg, transparent, transparent 99px, rgba(255,255,255,0.1) 99px, rgba(255,255,255,0.1) 100px);
+            /* ^ Grid lines every 100px for terrain placement */
+            transform-origin: 0 0;
+            transition: transform 0.1s ease-out;
+        }
+
+
+/* 2. THE PLAYER */
+        .soldier {
+            position: absolute;
+            width: 16px;
+            height: 24px;
+            background: #556B2F; 
+            border: 2px solid #2F4F4F;
+            border-radius: 2px;
+            z-index: 100;
+            box-shadow: 2px 4px 5px rgba(0,0,0,0.3);
+            will-change: left, top; /* Performance optimization */
+        }
+
+        .unit {
+            position: absolute;
+            width: 16px;
+            height: 24px;
+            background: #4169E1; /* Royal blue for allies */
+            border: 2px solid #1E3A8A;
+            border-radius: 2px;
+            z-index: 100;
+            box-shadow: 2px 4px 5px rgba(0,0,0,0.3);
+            will-change: left, top;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        #player::before {
+        content: var(--current-shield); /* Set by JavaScript */
+        position: absolute;
+        /* We put the shield on the left side (-12px) */
+        left: -8px; 
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 14px;
+        pointer-events: none;
+        }
+
+        #player::after {
+        content: var(--current-weapon);/* This will be filled by JS */
+        position: absolute;
+        left: 10px;   /* Puts it to the right of the 16px player */
+        top: 50%;
+        transform: translateY(-50%) scaleY(var(--flip, 1));
+        font-size: 14px;
+        pointer-events: none; /* So it doesn't interfere with clicks */
+        white-space: nowrap;
+        }
+
+        .unit::after {
+        content: var(--current-weapon);
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%) scaleY(var(--flip, 1));
+        font-size: 10px; /* Slightly smaller for allies */
+        }
+
+        /* Range circle for Bow mode */
+        #range-indicator {
+            position: absolute;
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            pointer-events: none;
+            display: none;
+            transform: translate(-50%, -50%);
+        }
+
+        /* 3. UI OVERLAY */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none; 
+            z-index: 1000;
+        }
+
+        .resource-panel {
+            position: absolute;
+            top: 20px; right: 20px;
+            background: rgba(42, 42, 42, 0.9);
+            border: 2px solid #666;
+            padding: 8px 15px;
+            color: #FFD700;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+
+        .character-card {
+            position: absolute;
+            bottom: 20px; left: 20px;
+            display: flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 12px;
+            border: 2px solid #4a4a4a;
+            border-radius: 8px;
+            pointer-events: auto; /* Let clicks happen here */
+        }
+
+        .weapon-box {
+            width: 54px; height: 54px;
+            background: #333;
+            border: 2px solid #8B4513;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-right: 15px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .weapon-box:active { transform: scale(0.9); }
+
+        .armor-box {
+            width: 54px; height: 54px;
+            background: #333;
+            border: 2px solid #4a4a4a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-right: 15px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .stat-line {
+            color: #eee;
+            font-size: 11px;
+            margin-top: 3px;
+            font-family: monospace;
+            display: flex;
+            justify-content: space-between;
+        }
+        #stat-dodge { color: #5dade2; } /* Light blue for dodge */
+        #stat-dmg { color: #f1948a; }   /* Light red for damage */
+        #stat-arm { color: #f7dc6f; }   /* Yellow for armor */
+
+        .armor-box:active { transform: scale(0.9); }
+
+        .stats-container { width: 140px; }
+        .name-tag { color: white; font-size: 12px; margin-bottom: 5px; opacity: 0.8; }
+
+        .hp-bar-bg {
+            width: 100%; height: 10px;
+            background: #222;
+            border: 1px solid #000;
+            border-radius: 2px;
+        }
+
+        #hp-fill {
+            width: 100%; height: 100%;
+            background: #DC143C; /* Crimson */
+            transition: width 0.3s ease;
+        }
+
+        .floating-text {
+            position: absolute;
+            pointer-events: none;
+            font-weight: bold;
+            font-size: 14px;
+            z-index: 200;
+            animation: floatUp 1s ease-out forwards;
+        }
+
+        /* REPLACE .enemy-hp-bg, .enemy-hp-fill, .ally-hp-bg, .ally-hp-fill with these: */
+        .hp-bg {
+            position: absolute;
+            top: -10px;
+            left: -2px;
+            width: 20px;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #000;
+            border-radius: 2px;
+        }
+        .hp-bar {
+            height: 100%;
+            background: #ff3333;
+            width: 100%;
+            transition: width 0.2s ease;
+        }
+
+        @keyframes floatUp {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-40px); opacity: 0; }
+        }
+
+        .text-miss { color: #aaa; }
+        .text-hit  { color: #fff; }
+        .text-crit { color: #ffcc00; font-size: 18px; text-shadow: 0 0 5px rgba(255, 204, 0, 0.5); }
+
+
+
+
+
+    </style>
+</head>
+<body>
+
+<div id="game-world">
+    <div id="game-canvas">
+        <div id="range-indicator"></div>
+        <div id="player" class="soldier"></div>
+    </div>
+</div>
+
+<div id="ui-layer">
+    <div id="spawn-menu" style="position: absolute; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 5px; pointer-events: auto;">
+        <div class="resource-panel" style="position: relative; top: auto; right: auto; margin-bottom: 10px;">
+            <span id="gold-count">💰 120</span>
+        </div>
+        <hr style="width: 100%; border: 0; border-top: 1px solid #fff; margin: 5px 0;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+            <button onclick="setCommand('FOLLOW')" style="background: #27ae60; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px; font-weight: bold;">
+                🚶 Follow
+            </button>
+            <button onclick="setCommand('CHARGE')" style="background: #c0392b; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px; font-weight: bold;">
+                ⚔️ Charge
+            </button>
+            <button onclick="setCommand('STAND')" style="background: #2980b9; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px; font-weight: bold;">
+                🛡️ Stand
+            </button>
+            <button onclick="setCommand('RETREAT')" style="background: #8e44ad; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px; font-weight: bold;">
+                🏃 Retreat
+            </button>
+        </div>
+        <div id="command-display" style="text-align: center; margin-top: 5px; color: #FFD700; font-weight: bold; font-size: 12px;">
+            Command: FOLLOW
+        </div>
+
+        <hr style="width: 100%; border: 0; border-top: 1px solid #fff; margin: 5px 0;">
+        <div id="scenario-selector" style="display: flex; flex-direction: column; gap: 5px;">
+            <button onclick="loadScenario('default')" style="background: #4a235a; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">📜 Random Bandits</button>
+            <button onclick="loadScenario('outnumbered')" style="background: #7b241c; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">📜 Outnumbered</button>
+            <button id="btn-forest" onclick="loadScenario('forest')" style="background: #1a4d1a; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">
+                1️⃣ 🌳 Forest
+            </button>
+            <button id="btn-mountain" onclick="loadScenario('mountain')" style="background: #5D4037; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">
+                2️⃣ 🏔️ Mountain
+            </button>
+            <button id="btn-valley" onclick="loadScenario('valley')" style="background: #f39c12; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">
+                3️⃣ ⛰️ Valley
+            </button>
+            <button id="btn-swamp" onclick="loadScenario('swamp')" style="background: #142d14; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">
+                4️⃣ 🍄 Swamp
+            </button>
+            <button id="btn-river" onclick="loadScenario('river')" style="background: #2980b9; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">
+                5️⃣ 🌊 River
+            </button>
+            <button id="btn-castle" onclick="loadScenario('castle')" style="background: #c0392b; color: white; border: 1px solid #fff; padding: 5px; cursor: pointer; font-size: 11px;">
+                6️⃣ 🏰 Castle
+            </button>
+        </div>
+    </div>
+
+<!-- Shop Overlay -->
+<div id="shop-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.95); border: 3px solid #FFD700; border-radius: 10px; padding: 20px; width: 600px; max-height: 80vh; overflow-y: auto; pointer-events: auto; display: none; z-index: 2000;">
+    <div style="text-align: center; color: #FFD700; font-size: 24px; font-weight: bold; margin-bottom: 20px;">
+        ⚔️ ARMORY ⚔️
+    </div>
+    
+    <!-- Recruitment Section -->
+<!-- Recruitment Section -->
+<div style="background: rgba(50, 50, 50, 0.8); padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+    <div style="color: #FFD700; font-size: 18px; margin-bottom: 10px;">💰 Village Services</div>
+    
+    <button onclick="recruitSoldier('big branch')" style="width: 100%; background: #5d4037; color: white; border: 2px solid #8B4513; padding: 15px; cursor: pointer; border-radius: 5px; font-size: 16px; font-weight: bold; margin-bottom: 10px;">
+        🌿 Hire Villager (20 gold)
+    </button>
+
+    <button onclick="restInVillage()" style="width: 100%; background: #2e4a62; color: white; border: 2px solid #5dade2; padding: 15px; cursor: pointer; border-radius: 5px; font-size: 16px; font-weight: bold;">
+        🏥 Rest in Village (+50 HP) (50 gold)
+    </button>
+</div>
+    <!-- Army Roster -->
+    <div style="background: rgba(50, 50, 50, 0.8); padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+        <div style="color: #FFD700; font-size: 18px; margin-bottom: 10px;">👥 Your Army</div>
+        <div id="army-roster" style="max-height: 300px; overflow-y: auto;">
+            <!-- Populated by JavaScript -->
+        </div>
+    </div>
+    
+    <!-- Equipment Panel (shows when soldier selected) -->
+    <div id="equipment-panel" style="display: none; background: rgba(30, 30, 30, 0.9); padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+        <div style="color: #FFD700; font-size: 16px; margin-bottom: 10px;">Equipping: <span id="selected-soldier-name"></span></div>
+        
+        <div style="margin-bottom: 15px;">
+            <div style="color: #aaa; font-size: 14px; margin-bottom: 5px;">⚔️ Weapon</div>
+            <div id="weapon-options" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            <div style="color: #aaa; font-size: 14px; margin-bottom: 5px;">🛡️ Armor</div>
+            <div id="armor-options" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            <div style="color: #aaa; font-size: 14px; margin-bottom: 5px;">🔰 Shield</div>
+            <div id="shield-options" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;">
+                <!-- Populated by JavaScript -->
+            </div>
+        </div>
+        
+        <button onclick="deselectSoldier()" style="width: 100%; background: #555; color: white; border: 1px solid #888; padding: 8px; cursor: pointer; border-radius: 5px;">
+            Close Equipment
+        </button>
+    </div>
+    
+    <button onclick="toggleShop()" style="width: 100%; background: #27ae60; color: white; border: 2px solid #FFD700; padding: 12px; cursor: pointer; border-radius: 5px; font-size: 16px; font-weight: bold;">
+        ✓ Ready for Battle
+    </button>
+</div>
+
+<!-- Shop Toggle Button -->
+<button id="shop-toggle" onclick="toggleShop()" style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: #FFD700; color: #000; border: 3px solid #8B4513; padding: 10px 20px; cursor: pointer; border-radius: 5px; font-weight: bold; font-size: 16px; pointer-events: auto; z-index: 1500;">
+    🛒 Open Armory
+</button>
+
+
+
+<div class="character-card" style="bottom: 20px; right: 20px; left: auto;">
+    <div id="weapon-box" class="weapon-box" onclick="openShopForHero()">⚔️</div>
+    <div id="armor-box" class="armor-box" onclick="openShopForHero()">👕</div>
+    <div id="shield-box" class="armor-box" onclick="openShopForHero()">🔲</div>
+    
+    <div class="stats-container">
+        <div class="name-tag">HERO</div>
+        <div class="hp-bar-bg"><div id="hp-fill"></div></div>
+        <div class="stat-line">⚔️ Damage: <span id="stat-dmg">0</span></div>
+        <div class="stat-line">🛡️ Armor: <span id="stat-arm">0</span></div>
+        <div class="stat-line">🛡️ Shield: <span id="stat-shield">None</span></div>
+        <div class="stat-line">⚡ Speed: <span id="stat-speed">0</span></div>
+        <div class="stat-line">🏃 Dodge: <span id="stat-dodge">0</span>%</div>
+    </div>            
+</div>
+
+
+<script>
+    const player = document.getElementById('player');
+    const world = document.getElementById('game-world');
+    const canvas = document.getElementById('game-canvas');
+    const rangeCircle = document.getElementById('range-indicator');
+    const weaponBtn = document.getElementById('weapon-box');
+    const armorBtn = document.getElementById('armor-box');
+    const hpFill = document.getElementById('hp-fill');
+    const goldDisplay = document.getElementById('gold-count');
+
+
+    // Camera system
+    let camera = {
+        x: 0,
+        y: 0,
+        zoom: 1,
+        worldWidth: 2000,
+        worldHeight: 2000
+    };
+    let lastTouchDist = 0; // For pinch-to-zoom
+    let touchStartX = 0;   // To track if the user is tapping or dragging
+    let touchStartY = 0;
+    let isDragging = false;
+
+    const gameCanvas = canvas;
+    let isPanning = false;
+    let lastPanX = 0, lastPanY = 0;
+
+
+
+    // Move all children of game-world into game-content
+
+    // --- GAME STATE ---
+// --- UPDATED GAME STATE ---
+const enemies = [];
+const projectiles = [];
+let allies = [];
+
+const gameState = {
+    hp: 100,
+    gold: 150,
+    unlockedLevel: 1, // Start at Level 1 (Forest)
+    currentShield: 'none',
+    currentWeapon: 'sword',
+    currentArmor: 'none',
+    baseSpeed: 3,
+    speed: 3,
+    baseDodge: 30,
+    dodge: 30,
+    pos: { x: 100, y: 100 },
+    target: { x: 100, y: 100 },
+
+    lastAttack: 0,
+};
+
+
+// Define the order of scenarios
+const LEVEL_ORDER = ['forest', 'mountain', 'valley', 'swamp', 'river', 'castle'];
+
+const ArmorDatabase = {
+    'none': {
+        icon: '👕',
+        speedMult: 1,
+        dodgePenalty: 0,
+        reduction: {
+            'big branch': 1.0, 'sword': 1.0, 'mace': 1.0, 'spear': 1.0, 
+            'crossbow': 1.0, 'dagger': 1.0, 'bow': 1.0
+        }
+    },
+    'leather armor': {
+        icon: '🧥',
+        speedMult: 0.75,
+        dodgePenalty: 10,
+        reduction: {
+            'big branch': 1.0, 'sword': 0.7, 'mace': 0.9, 'spear': 0.9, 
+            'crossbow': 0.9, 'dagger': 0.9, 'bow': 0.7
+        }
+    },
+    'chainmail': {
+        icon: '⛓️',
+        speedMult: 0.5,
+        dodgePenalty: 20,
+        reduction: {
+            'big branch': 0.9, 'sword': 0.5, 'mace': 0.7, 'spear': 0.8, 
+            'crossbow': 0.7, 'dagger': 0.4, 'bow': 0.3
+        }
+    },
+    'platemail': {
+        icon: '⬜',
+        speedMult: 0.25,
+        dodgePenalty: 25,
+        reduction: {
+            'big branch': 0.1, 'sword': 0.2, 'mace': 0.5, 'spear': 0.2, 
+            'crossbow': 0.6, 'dagger': 0.2, 'bow': 0.1
+        }
+    }
+};
+
+const WeaponDatabase = {
+    "big branch": {
+        icon: '🌿',isRanged: false, color: '#8B4513', type: "melee", flip: false, oneHanded: false,
+        speed: 2000, moveMod: -0.3, damage: 5, crit: 20, critChance: 10,
+        brackets: [{ min: 0, max: 43, missChance: 30 }, { min: 41, max: 9999, missChance: 100 }]
+    },
+    "sword": {
+        icon: '🗡️',isRanged: false, color: '#B0C4DE', type: "melee", flip: true, oneHanded: true,
+        speed: 2000, moveMod: -0.1, damage: 9, crit: 30, critChance: 5,
+        brackets: [{ min: 0, max: 43, missChance: 15 }, { min: 41, max: 9999, missChance: 100 }]
+    },
+    "mace": {
+        icon: '🔨',isRanged: false, color: '#708090', type: "melee", flip: false, oneHanded: true,
+        speed: 1333, moveMod: -0.1, damage: 6, crit: 40, critChance: 5,
+        brackets: [{ min: 0, max: 36, missChance: 15 }, { min: 21, max: 9999, missChance: 100 }]
+    },
+    "spear": {
+        icon: '🔱',isRanged: false, color: '#DAA520', type: "melee", flip: false, oneHanded: false,
+        speed: 4000, moveMod: -0.3, damage: 15, crit: 45, critChance: 15,
+        brackets: [{ min: 0, max: 60, missChance: 30 }, { min: 61, max: 9999, missChance: 100 }]
+    },
+    "crossbow": {
+        icon: '🎯',isRanged: true, color: '#2F4F4F', type: "bow", flip: false, oneHanded: false,
+        speed: 10000, moveMod: -0.4, damage: 30, crit: 70, critChance: 30,
+        brackets: [
+            { min: 0, max: 40, missChance: 50 },
+            { min: 41, max: 200, missChance: 20 },
+            { min: 201, max: 9999, missChance: 80 }
+        ]
+    },
+    "dagger": {
+        icon: '🔪',isRanged: false, color: '#483D8B', type: "melee", flip: true, oneHanded: true,
+        speed: 1000, moveMod: 0, damage: 6, crit: 30, critChance: 8,
+        brackets: [{ min: 0, max: 32, missChance: 5 }, { min: 21, max: 9999, missChance: 100 }]
+    },
+    "bow": {
+        icon: '🏹',isRanged: true, color: '#556B2F', type: "bow", flip: false, oneHanded: false,
+        speed: 1000, moveMod: -0.1, damage: 10, crit: 30, critChance: 5,
+        brackets: [
+            { min: 0, max: 40, missChance: 30 },
+            { min: 41, max: 400, missChance: 10 },
+            { min: 401, max: 9999, missChance: 60 }
+        ]
+    }
+};
+
+const ShieldDatabase = {
+    'none': {
+        icon: '',
+        speedPenalty: 0,
+        dodgePenalty: 0,
+        missBonus: { 'big branch': 0, 'sword': 0, 'mace': 0, 'spear': 0, 'crossbow': 0, 'dagger': 0, 'bow': 0 }
+    },
+    'buckler': {
+        icon: '⦿',
+        speedPenalty: 0.1,
+        dodgePenalty: 5,
+        missBonus: { 'big branch': 0, 'sword': 0.10, 'mace': 0.10, 'spear': 0.05, 'crossbow': 0.02, 'dagger': 0.05, 'bow': 0.02 }
+    },
+    'small shield': {
+        icon: '▮',
+        speedPenalty: 0.2,
+        dodgePenalty: 10,
+        missBonus: { 'big branch': 0.05, 'sword': 0.15, 'mace': 0.15, 'spear': 0.20, 'crossbow': 0.10, 'dagger': 0.05, 'bow': 0.10 }
+    },
+    'large shield': {
+        icon: '🔰',
+        speedPenalty: 0.3,
+        dodgePenalty: 20,
+        missBonus: { 'big branch': 0.10, 'sword': 0.20, 'mace': 0.20, 'spear': 0.25, 'crossbow': 0.30, 'dagger': 0.05, 'bow': 0.30 }
+    },
+    'tower shield': {
+        icon: '🛡️',
+        speedPenalty: 0.4,
+        dodgePenalty: 30,
+        missBonus: { 'big branch': 0.20, 'sword': 0.25, 'mace': 0.25, 'spear': 0.35, 'crossbow': 0.50, 'dagger': 0.05, 'bow': 0.50 }
+    }
+};      
+
+
+const SCENARIOS = {
+    'default': {
+        terrain: [
+            { type: 'water', x: 300, y: 400, width: 400, height: 300 },
+            { type: 'hill', x: 800, y: 200, width: 300, height: 250 },
+            { type: 'hill', x: 1200, y: 800, width: 250, height: 300 },
+        ],
+        enemies: [
+            { weapon: 'sword', armor: 'chainmail', shield: 'small shield' },
+            { weapon: 'spear', armor: 'leather armor', shield: 'none' },
+            { weapon: 'crossbow', armor: 'none', shield: 'none' },
+        ]
+    },
+
+    'bridge': {
+        // A vertical river crossing through the center with a narrow "rough grass" bridge
+        terrain: [
+            { type: 'water', x: 0, y: 800, width: 850, height: 400 },   // Left River
+            { type: 'water', x: 1150, y: 800, width: 850, height: 400 }, // Right River
+            { type: 'rough grass', x: 850, y: 800, width: 300, height: 400 }, // The "Bridge" bottleneck
+            { type: 'forest', x: 1400, y: 200, width: 400, height: 400 }, // Forest for ambushers
+        ],
+        enemies: [
+            { weapon: 'spear', armor: 'chainmail', shield: 'none' }, // The blocker
+            { weapon: 'bow', armor: 'leather armor', shield: 'none' },      // Support
+            { weapon: 'bow', armor: 'leather armor', shield: 'none' },      // Support
+        ]
+    },
+
+    'forest': {
+        // Dense clusters creating narrow corridors
+        terrain: [
+            { type: 'forest', x: 0, y: 0, width: 600, height: 2000 },      // Left treeline
+            { type: 'forest', x: 1400, y: 0, width: 600, height: 2000 },    // Right treeline
+            { type: 'forest', x: 800, y: 700, width: 400, height: 600 },    // Center thicket
+            { type: 'rough grass', x: 600, y: 0, width: 800, height: 2000 }, // Difficult floor
+        ],
+        enemies: [
+            { weapon: 'dagger', armor: 'leather armor', shield: 'none' },
+            { weapon: 'dagger', armor: 'leather armor', shield: 'none' },
+            { weapon: 'spear', armor: 'leather armor', shield: 'none' },
+        ]
+    },
+
+    'mountain': {
+        // Winding path through impassable water (acting as cliffs) and high hills
+        terrain: [
+            { type: 'water', x: 0, y: 0, width: 1500, height: 500 },    // Impassable peaks
+            { type: 'hill', x: 0, y: 500, width: 1200, height: 400 },   // High ground ridge
+            { type: 'hill', x: 800, y: 1200, width: 1200, height: 800 }, // Lower ridge
+            { type: 'rough grass', x: 0, y: 900, width: 1000, height: 300 }, // The path
+        ],
+        enemies: [
+            { weapon: 'crossbow', armor: 'chainmail', shield: 'none' }, // Sniping from hills
+            { weapon: 'sword', armor: 'platemail', shield: 'tower shield' }, // Heavy guard
+        ]
+    },
+    
+    'valley': {
+        // Surrounded by hills on both sides, forcing a confrontation in the center
+        terrain: [
+            { type: 'hill', x: 0, y: 0, width: 2000, height: 600 },     // Northern Ridge
+            { type: 'hill', x: 0, y: 1400, width: 2000, height: 600 },  // Southern Ridge
+            { type: 'water', x: 900, y: 600, width: 200, height: 800 },  // Central stream
+        ],
+        enemies: [
+            { weapon: 'spear', armor: 'leather armor', shield: 'none' },
+            { weapon: 'spear', armor: 'leather armor', shield: 'none' },
+            { weapon: 'bow', armor: 'none', shield: 'none' },
+        ]
+    },
+    
+    'castle': {
+        // Enclosed area with a single "gate" entry
+        terrain: [
+            { type: 'water', x: 500, y: 500, width: 1000, height: 50 },  // North wall
+            { type: 'water', x: 500, y: 1500, width: 1000, height: 50 }, // South wall
+            { type: 'water', x: 500, y: 500, width: 50, height: 1000 },  // West wall
+            { type: 'water', x: 1450, y: 500, width: 50, height: 400 },  // East wall (Top part)
+            { type: 'water', x: 1450, y: 1100, width: 50, height: 400 }, // East wall (Bottom part)
+            { type: 'rough grass', x: 1450, y: 900, width: 100, height: 200 }, // The Gatehouse
+        ],
+        enemies: [
+            { weapon: 'spear', armor: 'platemail', shield: 'none' },
+            { weapon: 'crossbow', armor: 'chainmail', shield: 'none' },
+        ]
+    },
+
+    'swamp': {
+        // A messy terrain where movement is slow and visibility (conceptually) is poor.
+        // Great for your Master's thesis on the Battle of Agincourt!
+        terrain: [
+            { type: 'water', x: 200, y: 200, width: 300, height: 300 },
+            { type: 'rough grass', x: 0, y: 0, width: 2000, height: 2000 }, // The whole map is slow
+            { type: 'water', x: 1200, y: 400, width: 400, height: 600 },
+            { type: 'water', x: 700, y: 1300, width: 500, height: 400 },
+            { type: 'forest', x: 100, y: 800, width: 300, height: 500 },
+            { type: 'forest', x: 1600, y: 1100, width: 400, height: 700 },
+        ],
+        enemies: [
+            { weapon: 'spear', armor: 'none', shield: 'none' },
+            { weapon: 'spear', armor: 'none', shield: 'none' },
+            { weapon: 'bow',   armor: 'none', shield: 'none' },
+        ]
+    },
+
+    'river': {
+        // A wide horizontal river dividing the map with two shallow "rough grass" fords.
+        terrain: [
+            { type: 'water', x: 0, y: 900, width: 2000, height: 200 }, // The River
+            { type: 'rough grass', x: 400, y: 900, width: 200, height: 200 }, // Ford 1
+            { type: 'rough grass', x: 1400, y: 900, width: 200, height: 200 }, // Ford 2
+            { type: 'hill', x: 350, y: 600, width: 300, height: 200 }, // Defensive hill North
+            { type: 'hill', x: 1350, y: 1200, width: 300, height: 200 }, // Defensive hill South
+        ],
+        enemies: [
+            { weapon: 'poleaxe', armor: 'chainmail', shield: 'none' },
+            { weapon: 'crossbow', armor: 'leather armor', shield: 'none' },
+            { weapon: 'crossbow', armor: 'leather armor', shield: 'none' },
+        ]
+    },
+
+
+
+    'outnumbered': {
+        terrain: [],
+        enemies: [
+            { weapon: 'dagger', armor: 'none', shield: 'none' },
+            { weapon: 'dagger', armor: 'none', shield: 'none' },
+            { weapon: 'bow', armor: 'leather armor', shield: 'none' },
+            { weapon: 'sword', armor: 'chainmail', shield: 'buckler' },
+        ]
+    }
+};
+
+let currentTerrain = [];
+
+function renderTerrain(terrainZones) {
+    // Clear old terrain
+    document.querySelectorAll('.terrain-zone').forEach(el => el.remove());
+    currentTerrain = terrainZones || [];
+    
+    // Draw new terrain
+    currentTerrain.forEach(zone => {
+        const terrainData = TerrainDatabase[zone.type];
+        if (!terrainData) return;
+        
+        const el = document.createElement('div');
+        el.className = 'terrain-zone';
+        el.style.cssText = `
+            position: absolute;
+            left: ${zone.x}px;
+            top: ${zone.y}px;
+            width: ${zone.width}px;
+            height: ${zone.height}px;
+            background: ${terrainData.color};
+            pointer-events: none;
+            z-index: 1;
+            opacity: 0.7;
+        `;
+        canvas.appendChild(el);
+    });
+}
+
+function getTerrainAt(x, y) {
+    for (let zone of currentTerrain) {
+        if (x >= zone.x && x <= zone.x + zone.width &&
+            y >= zone.y && y <= zone.y + zone.height) {
+            return zone.type;
+        }
+    }
+    return 'grass'; // Default terrain
+}
+
+function getTerrainSpeedMult(x, y) {
+    const terrainType = getTerrainAt(x, y);
+    return TerrainDatabase[terrainType]?.speedMult || 1;
+}
+
+// Then continue with your existing functions like adjustZoom, loadScenario, etc.
+
+
+const TerrainDatabase = {
+    'grass': { 
+        color: '#2d5a27', 
+        speedMult: 1, 
+        elevation: 0,
+        passable: true 
+    },
+    'rough grass': { 
+        color: '#1a3a17', 
+        speedMult: 0.7, 
+        elevation: 0,
+        passable: true 
+    },
+    'water': { 
+        color: '#2b5d8f', 
+        speedMult: 0.3, 
+        elevation: -1,
+        passable: false 
+    },
+    'hill': { 
+        color: '#8B7355', 
+        speedMult: 0.8, 
+        elevation: 1,
+        passable: true,
+        hitBonus: 10  // +10% hit chance when attacking FROM a hill
+    },
+    'forest': { 
+        color: '#1a4d1a', 
+        speedMult: 0.6, 
+        elevation: 0,
+        passable: true,
+        dodgeBonus: 15  // +15% dodge chance in forest
+    }
+};
+
+
+// Zoom with Ctrl+Wheel
+world.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) {
+        e.preventDefault();
+        const oldZoom = camera.zoom;
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        camera.zoom = Math.max(0.5, Math.min(3, camera.zoom + delta));
+        
+        // Adjust camera to keep player centered
+        const playerCenterX = gameState.pos.x + 8;
+        const playerCenterY = gameState.pos.y + 12;
+        const viewCenterX = window.innerWidth / 2;
+        const viewCenterY = window.innerHeight / 2;
+        
+        camera.x = playerCenterX - (viewCenterX / camera.zoom);
+        camera.y = playerCenterY - (viewCenterY / camera.zoom);
+        
+        updateCamera();
+    }
+}, { passive: false });
+
+
+world.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) {
+        // --- YOUR EXISTING ZOOM CODE ---
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        camera.zoom = Math.max(0.5, Math.min(3, camera.zoom + delta));
+        
+        // Keep hero centered during zoom
+        const playerCenterX = gameState.pos.x + 8;
+        const playerCenterY = gameState.pos.y + 12;
+        camera.x = playerCenterX - (window.innerWidth / 2 / camera.zoom);
+        camera.y = playerCenterY - (window.innerHeight / 2 / camera.zoom);
+        
+        updateCamera();
+    } else {
+        // --- NEW SCROLLING CODE ---
+        // e.deltaY is vertical scroll, e.deltaX is horizontal (shift + wheel)
+        // We divide by zoom so scrolling feels consistent at all zoom levels
+        camera.x += e.deltaX / camera.zoom;
+        camera.y += e.deltaY / camera.zoom;
+
+        // Keep camera within the 2000x2000 map boundaries
+        const viewW = window.innerWidth / camera.zoom;
+        const viewH = window.innerHeight / camera.zoom;
+        
+        camera.x = Math.max(0, Math.min(2000 - viewW, camera.x));
+        camera.y = Math.max(0, Math.min(2000 - viewH, camera.y));
+
+        updateCamera();
+    }
+}, { passive: false });
+
+// Handle both Mouse and Touch
+// --- IMPROVED INPUT HANDLING ---
+function handleInput(e) {
+    const rect = world.getBoundingClientRect();
+    
+    // 1. Resolve coordinates safely
+    let clientX, clientY;
+    
+    if (e.type.startsWith('touch')) {
+        // If it's the end of a touch, we use changedTouches
+        // Otherwise (touchstart/move), we use touches
+        const touch = e.changedTouches ? e.changedTouches[0] : e.touches[0];
+        clientX = touch.clientX;
+        clientY = touch.clientY;
+    } else {
+        // It's a MouseEvent
+        clientX = e.clientX;
+        clientY = e.clientY;
+    }
+
+    // 2. Translate screen pixels to map coordinates
+    const worldX = ((clientX - rect.left) / camera.zoom) + camera.x;
+    const worldY = ((clientY - rect.top) / camera.zoom) + camera.y;
+
+    console.log(`Commanding Hero to: ${Math.round(worldX)}, ${Math.round(worldY)}`);
+
+    // 3. Update the gameState target
+    // Note: I subtracted 8 and 12 so the hero's CENTER goes to your finger
+    gameState.target.x = worldX - 8; 
+    gameState.target.y = worldY - 12; 
+}
+
+// Attach the listeners to the WORLD but process carefully
+world.addEventListener('mousedown', (e) => {
+    // Left click only (0) and not panning (Shift)
+    if (e.button === 0 && !e.shiftKey) {
+        handleInput(e);
+    }
+});
+
+// 1. TOUCH START: Record where the finger first landed
+world.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+        // Single finger: potentially a tap or a scroll
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        isDragging = false; 
+    } else if (e.touches.length === 2) {
+        // Two fingers: Starting a pinch
+        lastTouchDist = Math.hypot(
+            e.touches[0].pageX - e.touches[1].pageX,
+            e.touches[0].pageY - e.touches[1].pageY
+        );
+    }
+}, { passive: false });
+
+// 2. TOUCH MOVE: Handle the actual scrolling/zooming
+world.addEventListener('touchmove', (e) => {
+    e.preventDefault(); // Stop the phone from "bouncing" the webpage
+
+    if (e.touches.length === 1) {
+        // --- ONE FINGER SCROLLING ---
+        const currentX = e.touches[0].clientX;
+        const currentY = e.touches[0].clientY;
+        
+        const dx = touchStartX - currentX;
+        const dy = touchStartY - currentY;
+
+        // Threshold: If moved > 5px, it's a scroll, not a tap
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+            isDragging = true;
+            camera.x += dx / camera.zoom;
+            camera.y += dy / camera.zoom;
+            
+            // Update start points so the scroll is smooth
+            touchStartX = currentX;
+            touchStartY = currentY;
+            updateCamera();
+        }
+    } else if (e.touches.length === 2) {
+        // --- TWO FINGER PINCH ZOOM ---
+        isDragging = true; // Prevent hero from moving after a pinch
+        const dist = Math.hypot(
+            e.touches[0].pageX - e.touches[1].pageX,
+            e.touches[0].pageY - e.touches[1].pageY
+        );
+        
+        // Adjust zoom based on finger spread
+        const zoomDelta = (dist - lastTouchDist) * 0.005; 
+        camera.zoom = Math.max(0.5, Math.min(3, camera.zoom + zoomDelta));
+        lastTouchDist = dist;
+        updateCamera();
+    }
+}, { passive: false });
+
+// 3. TOUCH END: The "Decision Maker"
+world.addEventListener('touchend', (e) => {
+    // If the finger stayed relatively still, treat it as a command to move the Hero
+    if (!isDragging && e.changedTouches.length === 1) {
+        // Use the first touch point that was just released
+        handleInput(e.changedTouches[0]);
+    }
+});
+
+
+// Simple ripple effect so you know the click registered
+function showClickRipple(x, y) {
+    const ripple = document.createElement('div');
+    ripple.style.cssText = `
+        position: absolute;
+        left: ${x}px;
+        top: ${y}px;
+        width: 20px;
+        height: 20px;
+        border: 2px solid white;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 999;
+        animation: rippleEffect 0.4s ease-out forwards;
+    `;
+    canvas.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 400);
+}
+
+
+world.addEventListener('mousedown', handleInput);
+world.addEventListener('touchstart', handleInput);
+
+// Pan with Shift+Click or middle mouse
+// 1. CLICK TO MOVE (Attached to the Viewport)
+world.addEventListener('mousedown', (e) => {
+    // Filter out UI clicks
+    if (e.target.closest('#ui-layer') && e.target !== uiLayer) return;
+    if (e.button !== 0 || isPanning) return; // Don't move if middle-clicking/panning
+
+    const rect = world.getBoundingClientRect();
+    const worldX = ((e.clientX - rect.left) / camera.zoom) + camera.x;
+    const worldY = ((e.clientY - rect.top) / camera.zoom) + camera.y;
+
+    gameState.target.x = worldX - 8;
+    gameState.target.y = worldY - 12;
+});
+
+// 2. PANNING (Attached to Window)
+// We use window so if you drag your mouse OFF the screen, the pan doesn't "stick"
+window.addEventListener('mousemove', (e) => {
+    if (isPanning) {
+        camera.x -= e.movementX / camera.zoom;
+        camera.y -= e.movementY / camera.zoom;
+        updateCamera();
+    }
+});
+
+window.addEventListener('mouseup', () => {
+    isPanning = false;
+    world.style.cursor = 'crosshair';
+});
+
+
+updateCamera();
+
+
+
+function loadScenario(name) {
+    const scenario = SCENARIOS[name];
+    if (!scenario) { console.warn('Unknown scenario:', name); return; }
+
+    const currentIndex = LEVEL_ORDER.indexOf(name);
+    const currentLevelNumber = currentIndex + 1; // Forest is 1, Mountain is 2...
+
+    if (currentLevelNumber === gameState.unlockedLevel) {
+        gameState.unlockedLevel++;
+        console.log(`New territory discovered! Highest level now: ${gameState.unlockedLevel}`);
+        updateScenarioButtons();
+    }
+
+
+
+    // Clear existing enemies only (keep allies from shop)
+    enemies.forEach(e => e.element.remove());
+    enemies.length = 0;
+
+    // Render terrain FIRST
+    renderTerrain(scenario.terrain);
+
+    // Move player to bottom center
+    gameState.pos.x = camera.worldWidth / 2 - 8;
+    gameState.pos.y = camera.worldHeight - 100;
+    gameState.target.x = gameState.pos.x;
+    gameState.target.y = gameState.pos.y;
+    player.style.left = gameState.pos.x + 'px';
+    player.style.top = gameState.pos.y + 'px';
+
+    // Move existing allies near player
+    allies.forEach((ally, i) => {
+        ally.pos.x = gameState.pos.x - 40 + (i * 40);
+        ally.pos.y = gameState.pos.y - 30;
+        ally.element.style.left = ally.pos.x + 'px';
+        ally.element.style.top = ally.pos.y + 'px';
+    });
+
+    // Spawn enemies at top
+    const enemyY = 50;
+    const spacing = Math.min(100, camera.worldWidth / (scenario.enemies.length + 1));
+    scenario.enemies.forEach((cfg, i) => {
+        const x = spacing * (i + 1);
+        spawnEnemy('footman', x, enemyY, cfg.weapon, cfg.armor, cfg.shield);
+    });
+
+    // ADD THIS - Center camera on player
+    camera.x = Math.max(0, gameState.pos.x - window.innerWidth / (2 * camera.zoom));
+    camera.y = Math.max(0, gameState.pos.y - window.innerHeight / (2 * camera.zoom));
+    updateCamera();
+
+    console.log(`%c📜 Scenario "${name}" loaded`, 'color: #FFD700; font-weight: bold');
+    document.getElementById('scenario-selector').style.display = 'none';
+}
+
+
+function updateScenarioButtons() {
+    LEVEL_ORDER.forEach((scenario, index) => {
+        const btn = document.getElementById(`btn-${scenario}`);
+        const levelNum = index + 1;
+
+        if (levelNum <= gameState.unlockedLevel) {
+            // Level is unlocked
+            btn.disabled = false;
+            btn.style.opacity = "1";
+            btn.style.cursor = "pointer";
+        } else {
+            // Level is locked
+            btn.disabled = true;
+            btn.style.opacity = "0.3"; // Make it look grayed out
+            btn.style.cursor = "not-allowed";
+        }
+    });
+}
+
+// Call this once at the very bottom of your script to initialize the buttons
+updateScenarioButtons();
+
+function enforceWorldBounds() {
+    const margin = 10;
+    const maxX = camera.worldWidth - 26;  // Use canvas width, not window width
+    const maxY = camera.worldHeight - 34; // Use canvas height, not window height
+    
+    // Clamp player
+    gameState.pos.x = Math.max(margin, Math.min(gameState.pos.x, maxX));
+    gameState.pos.y = Math.max(margin, Math.min(gameState.pos.y, maxY));
+    gameState.target.x = Math.max(margin, Math.min(gameState.target.x, maxX));
+    gameState.target.y = Math.max(margin, Math.min(gameState.target.y, maxY));
+    
+    // Clamp all AI units
+    [...enemies, ...allies].forEach(unit => {
+        unit.pos.x = Math.max(margin, Math.min(unit.pos.x, maxX));
+        unit.pos.y = Math.max(margin, Math.min(unit.pos.y, maxY));
+    });
+}
+
+
+function updateCamera() {
+    const viewW = window.innerWidth / camera.zoom;
+    const viewH = window.innerHeight / camera.zoom;
+    camera.x = Math.max(0, Math.min(camera.worldWidth - viewW, camera.x));
+    camera.y = Math.max(0, Math.min(camera.worldHeight - viewH, camera.y));
+    
+    canvas.style.transform = `scale(${camera.zoom}) translate(${-camera.x}px, ${-camera.y}px)`;
+}
+
+
+
+// --- DYNAMIC SPAWNER ---
+document.querySelectorAll('.spawn-btn').forEach(button => {
+    button.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevents clicking "through" the button to the game world
+        
+        const weaponKey = button.getAttribute('data-weapon');
+        
+        // Logic: Is it a ranged weapon? (Determines visual type)
+        const isRanged = WeaponDatabase[weaponKey].isRanged;
+        const type = isRanged ? 'archer' : 'footman';
+
+        // Spawn position: Right side, random height
+        const x = window.innerWidth - 100;
+        const y = 100 + Math.random() * (window.innerHeight - 200);
+
+        spawnEnemy(type, x, y, weaponKey);
+    });
+});
+
+/*
+function cycleShield() {
+    const keys = Object.keys(ShieldDatabase);
+    let idx = (keys.indexOf(gameState.currentShield) + 1) % keys.length;
+    gameState.currentShield = keys[idx];
+    
+    // 1. Update the UI Button Text
+    const shieldBtn = document.getElementById('shield-box');
+    const shieldData = ShieldDatabase[gameState.currentShield];
+    // If 'none', show a placeholder icon, otherwise show the shield icon
+    shieldBtn.innerText = gameState.currentShield === 'none' ? '🔲' : shieldData.icon;
+    
+    // 2. Refresh stats and player sprite
+    applyArmorStats();
+}
+*/
+
+/*
+function cycleArmor() {
+    const keys = Object.keys(ArmorDatabase);
+    let idx = (keys.indexOf(gameState.currentArmor) + 1) % keys.length;
+    gameState.currentArmor = keys[idx];
+    applyArmorStats();
+}
+*/
+
+function getRandomShield(weaponKey) {
+    const wpn = WeaponDatabase[weaponKey];
+    if (!wpn || !wpn.oneHanded) return 'none'; // ranged/two-handed get no shield
+    const shields = Object.keys(ShieldDatabase);
+    return shields[Math.floor(Math.random() * shields.length)];
+}
+
+function applyArmorStats() {
+    const armor = ArmorDatabase[gameState.currentArmor];
+    if (!armor) return;
+
+    const shield = ShieldDatabase[gameState.currentShield] || ShieldDatabase['none'];
+    const weapon = WeaponDatabase[gameState.currentWeapon];
+    
+    // Calculate stats
+    gameState.speed = Math.max(0.5, (gameState.baseSpeed * armor.speedMult * (1 + weapon.moveMod)) - shield.speedPenalty);
+    gameState.dodge = Math.max(0, gameState.baseDodge - armor.dodgePenalty - shield.dodgePenalty);
+
+    // Update Player Sprite Colors
+    const colors = {
+        'none': { bg: '#556B2F', bd: '#2F4F4F' },
+        'leather armor': { bg: '#8b4513', bd: '#5d2e0a' },
+        'chainmail': { bg: '#95a5a6', bd: '#2c3e50' },
+        'platemail': { bg: '#bdc3c7', bd: '#7f8c8d' }
+    }[gameState.currentArmor];
+
+    player.style.background = colors.bg;
+    player.style.border = `2px solid ${colors.bd}`;
+    
+    // --- SHIELD VISUAL UPDATE ---
+    // This updates the CSS variable used in #player::before
+    player.style.setProperty('--current-shield', `"${shield.icon}"`);
+    
+    // Update armor icon on button
+    if (armorBtn) armorBtn.innerText = armor.icon;
+
+    // Update the main body icon (the armor emoji)
+    player.innerText = armor.icon; 
+    
+    player.style.display = 'flex';
+    player.style.justifyContent = 'center';
+    player.style.alignItems = 'center';
+    player.style.fontSize = '12px';
+    
+    updateUI(); 
+}
+
+applyArmorStats();
+
+// At the top of your script
+let currentCommand = 'FOLLOW'; 
+
+function setCommand(cmd) {
+    currentCommand = cmd.toUpperCase();
+    const display = document.getElementById('command-display');
+    if (display) {
+        const labels = {
+            'FOLLOW': '🚶 Follow Me',
+            'CHARGE': '⚔️ Charge!',
+            'STAND': '🛡️ Hold Position',
+            'RETREAT': '🏃 Retreat!'
+        };
+        display.innerText = `Command: ${labels[currentCommand] || currentCommand}`;
+        display.style.color = {
+            'FOLLOW': '#27ae60',
+            'CHARGE': '#c0392b',
+            'STAND': '#2980b9',
+            'RETREAT': '#8e44ad'
+        }[currentCommand] || '#FFD700';
+    }
+}
+
+
+let selectedSoldierIndex = null;
+
+const EQUIPMENT_PRICES = {
+        weapon: {
+        'sword': 5,
+        'bow': 5,
+        'dagger': 2,
+        'mace': 5,
+        'spear': 7,
+        'crossbow': 10
+    },
+    armor: {
+        'leather armor': 30,
+        'chainmail': 60,
+        'platemail': 100
+    },
+    shield: {
+        'buckler': 20,
+        'small shield': 40,
+        'large shield': 70,
+        'tower shield': 100
+    }
+};
+
+function toggleShop() {
+    const shop = document.getElementById('shop-overlay');
+    const isOpen = shop.style.display !== 'none';
+    
+    if (isOpen) {
+        shop.style.display = 'none';
+        document.getElementById('shop-toggle').innerText = '🛒 Open Armory';
+    } else {
+        shop.style.display = 'block';
+        document.getElementById('shop-toggle').innerText = '✕ Close Armory';
+        updateArmyRoster();
+    }
+}
+
+function restInVillage() {
+    const healCost = 50;
+    const healAmount = 50;
+
+    if (gameState.gold >= healCost) {
+        // 1. Deduct Gold
+        gameState.gold -= healCost;
+        updateUI(); // Make sure this updates your gold display!
+
+        // 2. Heal the Hero
+        gameState.hp = Math.min(100, gameState.hp + healAmount);
+        
+        // Update Hero HP Bar visually
+        if (hpFill) hpFill.style.width = gameState.hp + '%';
+
+        // 3. Heal All Allies
+        allies.forEach(ally => {
+            // Assuming allies have an 'hp' and 'maxHp' property
+            // If they don't have maxHp yet, we'll assume 100
+            const maxHp = ally.maxHp || 100;
+            ally.hp = Math.min(maxHp, ally.hp + healAmount);
+            
+            // Update the ally's small health bar on the map
+            if (ally.hpBarElement) {
+                const percent = (ally.hp / maxHp) * 100;
+                ally.hpBarElement.style.width = percent + '%';
+            }
+        });
+
+        console.log("The army has rested. HP restored!");
+    } else {
+        alert("Not enough gold to rest in the village!");
+    }
+    updateUI();
+    updateArmyRoster()
+}
+
+function updateShopAvailability() {
+    const hasEnemies = enemies.length > 0;
+    const shopToggle = document.getElementById('shop-toggle');
+    const levelSelector = document.getElementById('scenario-selector'); // The UI container for your buttons
+    
+    if (hasEnemies) {
+        shopToggle.style.display = 'none';
+        document.getElementById('shop-overlay').style.display = 'none';
+        document.getElementById('shop-overlay').style.display = 'none';
+    } else {
+        shopToggle.style.display = 'block';
+        levelSelector.style.display = 'flex';
+
+        
+    }
+}
+
+function checkWinCondition(currentName) {
+    // Only check if there are no enemies left
+    if (enemies.length === 0) {
+        const currentIndex = LEVEL_ORDER.indexOf(currentName);
+        console.log("Current scenario variable is:", currentName);
+        
+        // currentIndex + 1 is the next level's index
+        // We add 1 more because we track unlockedLevel as a 1-based number (1, 2, 3...)
+        const nextLevelNumber = currentIndex + 2; 
+
+        if (nextLevelNumber > gameState.unlockedLevel) {
+            gameState.unlockedLevel = nextLevelNumber;
+            
+            // Visual feedback for the player
+            console.log(`VICTORY! ${currentName} completed. Level ${nextLevelNumber} unlocked!`);
+            
+            // Refresh the buttons so the next one is no longer grayed out
+            updateScenarioButtons();
+        }
+    }
+}
+
+function recruitSoldier(weaponType) {
+    const cost = 20;  // CHANGED from 50
+    if (gameState.gold < cost) {
+        alert(`Not enough gold! Need ${cost}, have ${gameState.gold}`);
+        return;
+    }
+    
+    gameState.gold -= cost;
+    
+    // Spawn near bottom-left corner
+    const x = 100 + (allies.length * 30);
+    const y = camera.worldHeight - 150;
+    
+    spawnAlly(x, y, weaponType, 'none', 'none');
+    updateArmyRoster();
+    updateUI();
+}
+
+function openShopForHero() {
+    // Open shop if closed
+    if (document.getElementById('shop-overlay').style.display === 'none') {
+        toggleShop();
+    }
+    // Select the hero
+    selectSoldier('HERO');
+}
+
+function updateArmyRoster() {
+    const roster = document.getElementById('army-roster');
+    if (!roster) return;
+
+    // 1. Prepare Hero Data
+    const heroWeapon = WeaponDatabase[gameState.currentWeapon];
+    const heroArmor = ArmorDatabase[gameState.currentArmor];
+    const heroShield = ShieldDatabase[gameState.currentShield];
+    const isHeroSelected = selectedSoldierIndex === 'HERO';
+
+    // 2. Create the Hero Entry HTML
+    const heroHTML = `
+        <div onclick="selectSoldier('HERO')" style="background: ${isHeroSelected ? 'rgba(255, 215, 0, 0.3)' : 'rgba(70, 70, 70, 0.5)'}; padding: 10px; margin-bottom: 10px; border: 2px solid ${isHeroSelected ? '#FFD700' : '#8B4513'}; border-radius: 5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <div style="font-size: 20px;">${heroWeapon.icon}</div>
+                <div>
+                    <div style="color: #FFD700; font-weight: bold;">⭐ THE HERO</div>
+                    <div style="color: #aaa; font-size: 11px;">${heroArmor.icon} ${gameState.currentArmor} | ${heroShield.icon || '∅'} ${gameState.currentShield}</div>
+                </div>
+            </div>
+            <div style="color: #f1948a; font-weight: bold;">HP: ${Math.round(gameState.hp)}</div>
+        </div>
+        <div style="text-align: center; color: #666; font-size: 10px; margin-bottom: 10px;">——— Your Recruits ———</div>
+    `;
+
+    // 3. Create the Allies List
+    let alliesHTML = allies.map((ally, index) => {
+        const weapon = WeaponDatabase[ally.weapon];
+        const armor = ArmorDatabase[ally.armor];
+        const shield = ShieldDatabase[ally.shield];
+        const isSelected = selectedSoldierIndex === index;
+        
+        return `
+            <div onclick="selectSoldier(${index})" style="background: ${isSelected ? 'rgba(100, 150, 255, 0.3)' : 'rgba(70, 70, 70, 0.5)'}; padding: 10px; margin-bottom: 5px; border: 2px solid ${isSelected ? '#5dade2' : '#555'}; border-radius: 5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <div style="font-size: 20px;">${weapon.icon}</div>
+                    <div>
+                        <div style="color: white; font-weight: bold;">Soldier #${index + 1}</div>
+                        <div style="color: #aaa; font-size: 11px;">${armor.icon} ${ally.armor} | ${shield.icon || '∅'} ${ally.shield}</div>
+                    </div>
+                </div>
+                <div style="color: #27ae60; font-weight: bold;">HP: ${Math.round(ally.hp)}</div>
+            </div>
+        `;
+    }).join('');
+
+    if (allies.length === 0) {
+        alliesHTML = '<div style="color: #888; text-align: center; padding: 10px;">No soldiers recruited yet</div>';
+    }
+
+    // 4. Combine them
+    roster.innerHTML = heroHTML + alliesHTML;
+}
+
+
+function selectSoldier(index) {
+    selectedSoldierIndex = index;
+    
+    // 1. Identify who we are looking at (Ally or Hero)
+    const isHero = index === 'HERO';
+    const target = isHero ? gameState : allies[index];
+    
+    // Safety check: if ally doesn't exist, stop
+    if (!target) return;
+
+    // 2. Open the panel and set the name
+    document.getElementById('equipment-panel').style.display = 'block';
+    document.getElementById('selected-soldier-name').innerText = isHero ? "The Hero" : `Soldier #${index + 1}`;
+    
+    // 3. Populate weapon options
+    const weaponOptions = document.getElementById('weapon-options');
+    weaponOptions.innerHTML = Object.keys(WeaponDatabase).map(weaponKey => {
+        const weapon = WeaponDatabase[weaponKey];
+        // Hero uses 'currentWeapon', Allies use 'weapon'
+        const currentWpnKey = isHero ? target.currentWeapon : target.weapon;
+        const isCurrent = currentWpnKey === weaponKey;
+        const price = EQUIPMENT_PRICES.weapon[weaponKey];
+        const canAfford = !price || gameState.gold >= price;
+        
+        return `
+            <button onclick="equipWeapon('${weaponKey}')" 
+                style="background: ${isCurrent ? '#27ae60' : (canAfford ? '#444' : '#222')}; 
+                       color: ${canAfford ? 'white' : '#666'}; 
+                       border: 2px solid ${isCurrent ? '#FFD700' : '#666'}; 
+                       padding: 8px; 
+                       cursor: ${canAfford ? 'pointer' : 'not-allowed'}; 
+                       border-radius: 3px; font-size: 16px;">
+                ${weapon.icon}<br><span style="font-size: 10px;">${price || 'Free'}</span>
+            </button>
+        `;
+    }).join('');
+
+    // 4. Populate armor options
+    const armorOptions = document.getElementById('armor-options');
+    const currentArmorKey = isHero ? target.currentArmor : target.armor;
+    armorOptions.innerHTML = Object.keys(ArmorDatabase).map(armorKey => {
+        const armor = ArmorDatabase[armorKey];
+        const isCurrent = currentArmorKey === armorKey;
+        const price = EQUIPMENT_PRICES.armor[armorKey];
+        const canAfford = !price || gameState.gold >= price;
+        
+        return `
+            <button onclick="equipArmor('${armorKey}')" 
+                style="background: ${isCurrent ? '#27ae60' : (canAfford ? '#444' : '#222')}; 
+                       color: ${canAfford ? 'white' : '#666'}; 
+                       border: 2px solid ${isCurrent ? '#FFD700' : '#666'}; 
+                       padding: 8px; 
+                       cursor: ${canAfford ? 'pointer' : 'not-allowed'}; 
+                       border-radius: 3px; font-size: 16px;">
+                ${armor.icon}<br><span style="font-size: 10px;">${price || 'Free'}</span>
+            </button>
+        `;
+    }).join('');
+    
+    // 5. Populate shield options
+    const shieldOptions = document.getElementById('shield-options');
+    const currentShieldKey = isHero ? target.currentShield : target.shield;
+    const currentWeaponKey = isHero ? target.currentWeapon : target.weapon;
+    const canUseShield = WeaponDatabase[currentWeaponKey].oneHanded;
+
+    shieldOptions.innerHTML = Object.keys(ShieldDatabase).map(shieldKey => {
+        const shield = ShieldDatabase[shieldKey];
+        const isCurrent = currentShieldKey === shieldKey;
+        const price = EQUIPMENT_PRICES.shield[shieldKey];
+        const canAfford = !price || gameState.gold >= price;
+        
+        return `
+            <button onclick="equipShield('${shieldKey}')" 
+                style="background: ${isCurrent ? '#27ae60' : (canAfford && canUseShield ? '#444' : '#222')}; 
+                       color: ${(canAfford && canUseShield) ? 'white' : '#666'}; 
+                       border: 2px solid ${isCurrent ? '#FFD700' : '#666'}; 
+                       padding: 8px; 
+                       cursor: ${(canAfford && canUseShield) ? 'pointer' : 'not-allowed'}; 
+                       border-radius: 3px; font-size: 16px;">
+                ${shield.icon || '∅'}<br><span style="font-size: 10px;">${price || 'Free'}</span>
+            </button>
+        `;
+    }).join('');
+    
+    updateArmyRoster();
+}
+
+function deselectSoldier() {
+    selectedSoldierIndex = null;
+    document.getElementById('equipment-panel').style.display = 'none';
+    updateArmyRoster();
+}
+
+function equipWeapon(weaponKey) {
+    if (selectedSoldierIndex === null) return;
+    
+    // Determine target (Hero or Ally)
+    const isHero = selectedSoldierIndex === 'HERO';
+    const target = isHero ? gameState : allies[selectedSoldierIndex];
+    
+    const price = EQUIPMENT_PRICES.weapon[weaponKey];
+    if (price && gameState.gold < price) {
+        alert(`Not enough gold! Need ${price}, have ${gameState.gold}`);
+        return;
+    }
+    
+    if (price) gameState.gold -= price;
+    
+    // Update data
+    if (isHero) {
+        gameState.currentWeapon = weaponKey;
+        applyArmorStats(); // Hero-specific visual/stat refresh
+    } else {
+        target.weapon = weaponKey;
+        // Update ally visuals
+        const weaponData = WeaponDatabase[weaponKey];
+        target.element.style.setProperty('--current-weapon', `"${weaponData.icon}"`);
+        target.element.style.setProperty('--flip', weaponData.flip ? -1 : 1);
+    }
+    
+    // Shared Logic: Remove shield if two-handed
+    const weaponData = WeaponDatabase[weaponKey];
+    const currentShield = isHero ? gameState.currentShield : target.shield;
+    if (!weaponData.oneHanded && currentShield !== 'none') {
+        if (isHero) {
+            gameState.currentShield = 'none';
+            applyArmorStats();
+        } else {
+            target.shield = 'none';
+        }
+    }
+    
+    updateUI();
+    selectSoldier(selectedSoldierIndex); 
+}
+
+
+function equipArmor(armorKey) {
+    if (selectedSoldierIndex === null) return;
+    
+    const isHero = selectedSoldierIndex === 'HERO';
+    const target = isHero ? gameState : allies[selectedSoldierIndex];
+    
+    const price = EQUIPMENT_PRICES.armor[armorKey];
+    if (price && gameState.gold < price) {
+        alert(`Not enough gold! Need ${price}, have ${gameState.gold}`);
+        return;
+    }
+    
+    if (price) gameState.gold -= price;
+    
+    const armorData = ArmorDatabase[armorKey];
+
+    if (isHero) {
+        gameState.currentArmor = armorKey;
+        applyArmorStats();
+    } else {
+        target.armor = armorKey;
+        // Update Ally stats
+        target.dodge = Math.max(0, 30 - (armorData.dodgePenalty || 0));
+        target.speed = 1.5 * (armorData.speedMult || 1);
+        target.reduction = armorData.reduction;
+        
+        // Update Ally visuals
+        target.element.innerHTML = `
+            <div class="hp-bg"><div class="hp-bar"></div></div>
+            ${armorData.icon}
+        `;
+        target.hpFill = target.element.querySelector('.hp-bar');
+        target.element.style.backgroundColor = armorData.color || '#2e86de';
+    }
+    
+    updateUI();
+    selectSoldier(selectedSoldierIndex);
+}
+
+
+function equipShield(shieldKey) {
+    if (selectedSoldierIndex === null) return;
+    
+    const isHero = selectedSoldierIndex === 'HERO';
+    const target = isHero ? gameState : allies[selectedSoldierIndex];
+    
+    // Check weapon compatibility
+    const currentWeaponKey = isHero ? gameState.currentWeapon : target.weapon;
+    const weapon = WeaponDatabase[currentWeaponKey];
+    
+    if (!weapon.oneHanded && shieldKey !== 'none') {
+        alert('Cannot use shield with two-handed weapon!');
+        return;
+    }
+    
+    const price = EQUIPMENT_PRICES.shield[shieldKey];
+    if (price && gameState.gold < price) {
+        alert(`Not enough gold! Need ${price}, have ${gameState.gold}`);
+        return;
+    }
+    
+    if (price) gameState.gold -= price;
+    
+    if (isHero) {
+        gameState.currentShield = shieldKey;
+        applyArmorStats();
+    } else {
+        target.shield = shieldKey;
+    }
+    
+    updateUI();
+    selectSoldier(selectedSoldierIndex);
+}
+
+
+function spawnEnemy(type = 'soldier', x = 100, y = 100, weaponKey = 'sword', armorType = null, shieldType = null) {
+    const el = document.createElement('div');
+    
+    // Use || pattern instead of redeclaring
+    armorType = armorType || getRandomArmor();
+    shieldType = shieldType !== null ? shieldType : getRandomShield(weaponKey);
+    
+    const armorData = ArmorDatabase[armorType] || { icon: '', color: '#708090', reduction: {} };
+    const weaponData = WeaponDatabase[weaponKey] || { icon: '⚔️', flip: false };
+    
+    // Use 'unit' class so the CSS weapon ::after works
+    el.className = 'unit enemy'; 
+
+    // 2. Set visuals (Armor Emoji + HP Bar)
+    el.innerHTML = `
+        <div class="hp-bg"><div class="hp-bar"></div></div>
+        ${armorData.icon} 
+    `;
+    // 3. Apply Styles & Weapon Properties
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.backgroundColor = '#8B0000'; // DarkRed hex code
+
+    // Set the weapon icon and flip
+    el.style.setProperty('--current-weapon', `"${weaponData.icon}"`);
+    el.style.setProperty('--flip', weaponData.flip ? -1 : 1);
+
+    // 4. Create the Enemy Object
+    const newEnemy = {
+        element: el,
+        hpFill: el.querySelector('.hp-bar'),
+        type: type,
+        pos: { x: x, y: y },
+        hp: 100, 
+        maxHp: 100,
+        weapon: weaponKey,
+        armor: armorType,
+        shield: shieldType,
+        reduction: armorData.reduction, // Important for combat math!
+        dodge: Math.max(0, 20 - (ArmorDatabase[armorType]?.dodgePenalty || 0)),
+        speed: 1.5 * (ArmorDatabase[armorType]?.speedMult || 1),
+        lastAttack: 0
+    };
+
+    canvas.appendChild(el);
+    enemies.push(newEnemy);
+    console.log("Enemy spawned with " + armorType + " and " + weaponKey);
+}
+
+
+function applyAttackToPlayer(result) {
+    if (result.type === "MISS") {
+        showFloatingText(gameState.pos.x, gameState.pos.y - 20, "MISS", "miss");
+    } else {
+        gameState.hp -= result.damage;
+        const label = result.type === "CRIT" ? `CRIT! -${result.damage}` : `-${result.damage}`;
+        showFloatingText(gameState.pos.x, gameState.pos.y - 20, label, result.type);
+        updateUI();
+    }
+}
+
+function getRandomArmor() {
+    // Make sure these strings match your ArmorDatabase keys EXACTLY
+    const armors = ['none', 'leather armor', 'chainmail', 'platemail']; 
+    const choice = armors[Math.floor(Math.random() * armors.length)];
+    return choice;
+}
+
+function spawnAlly(x, y, weaponKey, armorType = null, shieldType = null) {
+    const el = document.createElement('div');
+    
+    // Use || pattern instead of redeclaring
+    armorType = armorType || getRandomArmor();
+    shieldType = shieldType !== null ? shieldType : getRandomShield(weaponKey);
+    
+    const armorData = ArmorDatabase[armorType] || { icon: '', color: '#2e86de', reduction: {} };
+    const weaponData = WeaponDatabase[weaponKey] || { icon: '🗡️', flip: false };  // Fixed: was 'type'
+    
+    el.className = 'unit ally';
+    
+    // Put the health bar AND the armor emoji inside the body
+    el.innerHTML = `
+        <div class="hp-bg"><div class="hp-bar"></div></div>
+        ${armorData.icon}
+    `;
+    
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+
+    // Now this won't crash because armorData is guaranteed to exist
+    el.style.backgroundColor = armorData.color;
+    
+    el.style.setProperty('--current-weapon', `"${weaponData.icon}"`);
+    el.style.setProperty('--flip', weaponData.flip ? -1 : 1);
+    
+
+    const ally = {
+        pos: { x: x, y: y },
+        weapon: weaponKey,
+        armor: armorType,
+        shield: shieldType,
+        reduction: armorData.reduction,
+        hp: 100,
+        maxHp: 100,
+        target: null,
+        lastAttack: 0,
+        element: el,
+        hpFill: el.querySelector('.hp-bar'),
+        dodge: Math.max(0, 30 - (ArmorDatabase[armorType]?.dodgePenalty || 0)),
+        speed: 1.5 * (ArmorDatabase[armorType]?.speedMult || 1),
+    };
+
+    canvas.appendChild(el);
+    allies.push(ally);
+    return ally;
+}
+
+function getHitResult(weaponKey, distance, targetDodge, targetArmorKey = 'none', targetShieldKey = 'none') {
+    const wpn = WeaponDatabase[weaponKey];
+    const armor = ArmorDatabase[targetArmorKey];
+    const shield = ShieldDatabase[targetShieldKey] || ShieldDatabase['none']; 
+    const bracket = wpn.brackets.find(b => distance >= b.min && distance <= b.max);
+    
+    let baseMiss = bracket ? bracket.missChance : 100;
+    const shieldBonus = (shield.missBonus[weaponKey] || 0) * 100; // convert 0.1 → 10%
+    let totalMiss = (baseMiss < 100) ? Math.min(baseMiss + targetDodge + shieldBonus, 65) : 100;
+
+    console.log(`%c🎲 ATTACK ROLL [${weaponKey} vs ${targetArmorKey} + ${targetShieldKey} shield]`, 'color: #aaa; font-weight: bold');
+    console.log(`   📏 Distance: ${Math.round(distance)}px | Bracket: ${bracket ? bracket.min+'-'+bracket.max : 'none'}`);
+    console.log(`   🎯 Miss: ${baseMiss}% base + ${targetDodge}% dodge + ${shieldBonus}% shield = ${totalMiss}% (cap 65%)`);
+    
+    if (Math.random() * 100 < totalMiss) {
+        console.log(`   ❌ MISSED`);
+        return { type: "MISS", damage: 0 };
+    }
+
+    let isCrit = Math.random() * 100 < wpn.critChance;
+    let rawDmg = isCrit ? wpn.crit : wpn.damage;
+    let multiplier = armor.reduction[weaponKey] || 1.0;
+    let finalDmg = Math.round(rawDmg * multiplier);
+
+    console.log(`   ⚔️  Raw damage: ${rawDmg} (${isCrit ? 'CRIT' : 'normal'}) × ${multiplier} armor = %c${finalDmg} damage`, 'color: #ff6b6b; font-weight: bold');
+
+    console.log(`   ⚔️  Raw: ${rawDmg} (${isCrit ? 'CRIT' : 'normal'}) × ${multiplier} armor = %c${finalDmg}`, 'color: #ff6b6b; font-weight: bold');
+    return { type: isCrit ? "CRIT" : "HIT", damage: finalDmg };
+}
+
+function handleAutoAttack() {
+    if (enemies.length === 0) return;
+
+    let closestEnemy = null;
+    let minDistance = Infinity;
+
+    // 1. Find the nearest target
+    enemies.forEach(en => {
+        const dx = en.pos.x - (gameState.pos.x + 8);
+        const dy = en.pos.y - (gameState.pos.y + 12);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minDistance) {
+            minDistance = dist;
+            closestEnemy = en;
+        }
+    });
+
+    if (closestEnemy) {
+        const now = Date.now();
+        const weapon = WeaponDatabase[gameState.currentWeapon];
+        
+        // 2. FIND THE SPECIFIC BRACKET
+        const bracket = weapon.brackets.find(b => minDistance >= b.min && minDistance <= b.max);
+
+        // 3. THE "INTELLIGENT SWING" CHECK
+        // Only attack if we found a bracket AND it's not a 100% miss zone
+        const canActuallyHit = bracket && bracket.missChance < 100;
+
+        if (canActuallyHit && (now - gameState.lastAttack > weapon.speed)) {
+            
+            const result = getHitResult(gameState.currentWeapon, minDistance, closestEnemy.dodge, closestEnemy.armor || 'none', closestEnemy.shield || 'none');
+            if (weapon.isRanged) {
+                spawnArrow(gameState.pos.x + 8, gameState.pos.y + 12, closestEnemy.pos.x + 8, closestEnemy.pos.y + 12, true, result);
+            } else {
+                // MELEE: Show the result over the ENEMY
+                if (result.type === "MISS") {
+                    showFloatingText(closestEnemy.pos.x, closestEnemy.pos.y - 20, "MISS", "miss");
+                } else {
+                    closestEnemy.hp -= result.damage;
+                    const label = result.type === "CRIT" ? `CRIT! -${result.damage}` : `-${result.damage}`;
+                    showFloatingText(closestEnemy.pos.x, closestEnemy.pos.y - 20, label, result.type);
+                    
+                    if (closestEnemy.hpFill) {
+                        const pct = Math.max(0, (closestEnemy.hp / closestEnemy.maxHp) * 100);
+                        closestEnemy.hpFill.style.width = pct + '%';
+                    }
+                }
+            }
+            
+            // RESET PLAYER TIMER
+            gameState.lastAttack = now;
+        }
+    }
+}
+
+function applyCombatResult(target, result) {
+    // 1. Apply the damage
+    target.hp -= result.damage;
+    
+    // 2. Show floating text (Crit vs Normal)
+    const label = result.type === "CRIT" ? `CRIT! -${result.damage}` : `-${result.damage}`;
+    showFloatingText(target.pos.x, target.pos.y - 20, label, result.type);
+
+    // 3. Update the red HP bar width
+    // We assume max HP is 100 based on your setup
+    const hpPercent = Math.max(0, (target.hp / 100) * 100);
+    if (target.hpFill) {
+        target.hpFill.style.width = hpPercent + "%";
+    }
+
+    // 4. Check for Death
+    if (target.hp <= 0) {
+        target.element.remove();
+        const index = enemies.indexOf(target);
+        if (index > -1) enemies.splice(index, 1);
+        
+        gameState.gold += 20; // Bounty for the kill
+        updateUI(); // Refresh gold display
+    }
+}
+
+// Helper to handle HP and death
+function dealDamage(target, amt) {
+    target.hp -= amt;
+    const healthPercent = Math.max(0, (target.hp / target.maxHp) * 100);
+    target.hpFill.style.width = healthPercent + "%";
+
+    if (target.hp <= 0) {
+        target.element.remove();
+        const index = enemies.indexOf(target);
+        if (index > -1) enemies.splice(index, 1);
+        gameState.gold += 20;
+        updateUI();
+    }
+}
+
+function showFloatingText(x, y, text, type) {
+    const el = document.createElement('div');
+    el.className = `floating-text text-${type.toLowerCase()}`;
+    el.innerText = text;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    
+    canvas.appendChild(el);
+    
+    // Remove from DOM after animation finishes
+    setTimeout(() => el.remove(), 1000);
+}
+
+function handleCollisions() {
+    const radius = 12;
+    const minDist = radius * 2;
+    
+    // Create a combined list of all AI units
+    const allUnits = [...enemies, ...allies];
+
+    allUnits.forEach((u1, i) => {
+        // 1. Check against Player (Player is immovable)
+        const pdx = u1.pos.x - gameState.pos.x;
+        const pdy = u1.pos.y - gameState.pos.y;
+        const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+        
+        if (pDist < minDist && pDist > 0) {
+            const pOverlap = minDist - pDist;
+            u1.pos.x += (pdx / pDist) * pOverlap;
+            u1.pos.y += (pdy / pDist) * pOverlap;
+        }
+
+        // 2. Check against other AI units (Enemies AND Allies)
+        for (let j = i + 1; j < allUnits.length; j++) {
+            const u2 = allUnits[j];
+            const dx = u2.pos.x - u1.pos.x;
+            const dy = u2.pos.y - u1.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < minDist && dist > 0) {
+                const overlap = minDist - dist;
+                const nx = dx / dist;
+                const ny = dy / dist;
+                
+                // Equal push-back for both units
+                u1.pos.x -= nx * (overlap / 2);
+                u1.pos.y -= ny * (overlap / 2);
+                u2.pos.x += nx * (overlap / 2);
+                u2.pos.y += ny * (overlap / 2);
+            }
+        }
+    });
+}
+
+
+function spawnArrow(fromX, fromY, toX, toY, isPlayer, result) {
+    // If no result was passed, WE HAVE A PROBLEM. 
+    // Let's force a result check here just in case.
+    if (!result) {
+        console.warn("Arrow spawned without a combat result!");
+        return; 
+    }
+
+    const arrow = document.createElement('div');
+    const color = isPlayer ? '#FFD700' : 'white';
+    arrow.style.cssText = `position:absolute; width:4px; height:4px; background:${color}; border-radius:50%; z-index:90; pointer-events:none;`; 
+    // ^ Added pointer-events:none so the arrows don't block clicks
+    
+    canvas.appendChild(arrow);
+    
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    
+    projectiles.push({
+        element: arrow,
+        pos: { x: fromX, y: fromY },
+        vel: { x: (dx/dist) * 8, y: (dy/dist) * 8 },
+        life: 200,
+        isPlayer: isPlayer,
+        result: result 
+    });
+}
+
+
+
+function getPlayerSpeed() {
+    const baseSpeed = 5; // Or whatever your starting speed is
+    const weapon = WeaponDatabase[gameState.currentWeapon];
+    const shield = ShieldDatabase[gameState.currentShield];
+    const armor = ArmorDatabase[gameState.currentArmor];
+
+    // Formula: (Base - Weapon - Shield) * ArmorMultiplier
+    const rawSpeed = baseSpeed - (weapon.weight || 0) - (shield.speedPenalty || 0);
+    const finalSpeed = rawSpeed * (armor.speedMultiplier || 1);
+
+    return Math.max(0.5, finalSpeed); // Ensure they don't move at 0 speed!
+}
+
+    // Toggle Weapon
+/*
+function toggleWeapon(e) {
+    if (e) e.stopPropagation();
+    
+    const allWeapons = Object.keys(WeaponDatabase);
+    let currentIndex = allWeapons.indexOf(gameState.currentWeapon);
+    currentIndex = (currentIndex + 1) % allWeapons.length;
+    gameState.currentWeapon = allWeapons[currentIndex];
+
+    applyArmorStats();
+}
+*/
+
+    // --- CORE LOGIC ---
+
+function tryAllyAttack(ally, enemy, distance, weapon) {
+    const now = Date.now();
+    const bracket = weapon.brackets.find(b => distance >= b.min && distance <= b.max);
+    
+    if (bracket && (now - (ally.lastAttack || 0) > weapon.speed)) {
+        const result = getHitResult(ally.weapon, distance, enemy.dodge, enemy.armor || 'none', enemy.shield || 'none');
+        if (weapon.isRanged) {
+            spawnArrow(ally.pos.x + 8, ally.pos.y + 12, enemy.pos.x + 8, enemy.pos.y + 12, true, result);
+        } else {
+            if (result.type !== "MISS") {
+                enemy.hp -= result.damage;
+                showFloatingText(enemy.pos.x, enemy.pos.y - 20, `-${result.damage}`, result.type);
+            } else {
+                showFloatingText(enemy.pos.x, enemy.pos.y - 20, "MISS", "miss");
+            }
+        }
+        ally.lastAttack = now;
+    }
+}
+
+function updateUI() {
+    const weapon = WeaponDatabase[gameState.currentWeapon];
+    const armor = ArmorDatabase[gameState.currentArmor];
+    const shield = ShieldDatabase[gameState.currentShield];
+
+    const currentSpeed = Number(gameState.speed).toFixed(1);
+    const currentDodge = gameState.dodge;
+
+    if (!weapon) return;
+
+    // ... (Icon and Color code)
+    
+    if (weaponBtn) weaponBtn.innerText = weapon.icon;
+    if (armorBtn) armorBtn.innerText = armor.icon;
+    if (player) player.style.backgroundColor = weapon.color;
+    if (goldDisplay) goldDisplay.innerText = `💰 ${gameState.gold}`;
+    if (hpFill) hpFill.style.width = gameState.hp + "%";
+
+    document.getElementById('stat-speed').innerText = currentSpeed;
+    document.getElementById('stat-dodge').innerText = currentDodge;
+    document.getElementById('stat-shield').innerText = gameState.currentShield;
+
+    document.getElementById('stat-dmg').innerText = `${weapon.damage}-${weapon.crit}`;
+    document.getElementById('stat-arm').innerText = gameState.currentArmor;
+
+
+    player.style.setProperty('--current-shield', `"${shield.icon}"`);
+    player.style.setProperty('--current-weapon', `"${weapon.icon}"`);
+    const flipVal = weapon.flip ? -1 : 1;
+    player.style.setProperty('--flip', flipVal);
+
+    // FIND THE OPTIMAL BRACKET
+    let optimalBracket = weapon.brackets.reduce((prev, current) => {
+        return (prev.missChance < current.missChance) ? prev : current;
+    });
+
+    let displayRange = optimalBracket.max;
+    if (displayRange >= 9999) displayRange = optimalBracket.min;
+
+    if (displayRange > 0) {
+        rangeCircle.style.display = 'block';
+        
+        // 1. Set the size (Diameter)
+        rangeCircle.style.width = (displayRange * 2) + 'px';
+        rangeCircle.style.height = (displayRange * 2) + 'px';
+        
+        // 2. The Secret Sauce: Centering
+        // We move the circle LEFT and UP by the radius to center it
+        // The +8 and +12 align it to the character's visual center
+        //rangeCircle.style.left = '50%'; 
+        //rangeCircle.style.top = '50%';
+        //rangeCircle.style.transform = 'translate(-50%, -50%)';
+        
+        // Update border color based on how good the miss chance is
+        const intensity = 255 - (optimalBracket.missChance * 2);
+        rangeCircle.style.borderColor = `rgba(0, ${intensity}, 0, 0.6)`; 
+    } else {
+        rangeCircle.style.display = 'none';
+    }
+}
+
+// --- UPDATED GAME LOOP ---
+function gameLoop() {
+    // 1. MOVE PLAYER
+    const pDx = gameState.target.x - gameState.pos.x;
+    const pDy = gameState.target.y - gameState.pos.y;
+    const pDist = Math.sqrt(pDx * pDx + pDy * pDy);
+
+    if (pDist > gameState.speed) {
+        const terrainMult = getTerrainSpeedMult(gameState.pos.x, gameState.pos.y);
+        const effectiveSpeed = gameState.speed * terrainMult;
+        gameState.pos.x += (pDx / pDist) * effectiveSpeed;
+        gameState.pos.y += (pDy / pDist) * effectiveSpeed;
+    } else {
+        gameState.pos.x = gameState.target.x;
+        gameState.pos.y = gameState.target.y;
+    }
+
+    player.style.left = gameState.pos.x + 'px';
+    player.style.top = gameState.pos.y + 'px';
+    rangeCircle.style.left = (gameState.pos.x + 8) + 'px';
+    rangeCircle.style.top = (gameState.pos.y + 12) + 'px';
+
+    // 2. MOVE ALLIES & ALLY ATTACKS
+    allies.forEach(ally => {
+        const weapon = WeaponDatabase[ally.weapon];
+        if (!weapon) return;
+
+        let closestEnemy = null;
+        let shortestDist = Infinity;
+
+        enemies.forEach(enemy => {
+            const dx = enemy.pos.x - ally.pos.x;
+            const dy = enemy.pos.y - ally.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < shortestDist) {
+                shortestDist = dist;
+                closestEnemy = enemy;
+            }
+        });
+
+        const terrainMult = getTerrainSpeedMult(ally.pos.x, ally.pos.y);
+
+        // COMMAND-FIRST LOGIC
+        if (currentCommand === 'FOLLOW') {
+            const pdx = gameState.pos.x - ally.pos.x;
+            const pdy = gameState.pos.y - ally.pos.y;
+            const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pDist > 40) {
+                ally.pos.x += (pdx / pDist) * ally.speed * terrainMult;
+                ally.pos.y += (pdy / pDist) * ally.speed * terrainMult;
+            }
+            // Still attack enemies that get close
+            if (closestEnemy && shortestDist < 150) {
+                tryAllyAttack(ally, closestEnemy, shortestDist, weapon);
+            }
+            
+        } else if (currentCommand === 'CHARGE') {
+            // Attack enemies aggressively
+            if (closestEnemy) {
+                const edx = closestEnemy.pos.x - ally.pos.x;
+                const edy = closestEnemy.pos.y - ally.pos.y;
+                const bestBracket = weapon.brackets.reduce((prev, curr) => 
+                    (curr.missChance < prev.missChance) ? curr : prev
+                );
+                const stopDist = bestBracket.max > 1000 ? bestBracket.min + 20 : bestBracket.max - 5;
+                
+                if (shortestDist > stopDist) {
+                    ally.pos.x += (edx / shortestDist) * ally.speed * terrainMult;
+                    ally.pos.y += (edy / shortestDist) * ally.speed * terrainMult;
+                }
+                tryAllyAttack(ally, closestEnemy, shortestDist, weapon);
+            }
+            
+        } else if (currentCommand === 'STAND') {
+            // Don't move, but attack enemies in range
+            if (closestEnemy) {
+                tryAllyAttack(ally, closestEnemy, shortestDist, weapon);
+            }
+            
+        } else if (currentCommand === 'RETREAT') {
+            // Run to bottom-left, ignore enemies
+            const targetX = 50;
+            const targetY = camera.worldHeight - 50;
+            const dx = targetX - ally.pos.x;
+            const dy = targetY - ally.pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 30) {
+                ally.pos.x += (dx / dist) * ally.speed * terrainMult;
+                ally.pos.y += (dy / dist) * ally.speed * terrainMult;
+            }
+        }
+
+        ally.element.style.left = ally.pos.x + 'px';
+        ally.element.style.top = ally.pos.y + 'px';
+    });
+
+    // 3. PLAYER AUTO-ATTACK
+    handleAutoAttack();
+
+    // 4. UPDATE ENEMIES
+    enemies.forEach((enemy) => {
+        const weapon = WeaponDatabase[enemy.weapon];
+        if (!weapon) return;
+
+        let targetPos = { x: gameState.pos.x, y: gameState.pos.y };
+        let targetType = 'player';
+        let targetRef = null;
+        
+        let dx = gameState.pos.x - enemy.pos.x;
+        let dy = gameState.pos.y - enemy.pos.y;
+        let minDist = Math.sqrt(dx * dx + dy * dy);
+
+        allies.forEach(ally => {
+            const adx = ally.pos.x - enemy.pos.x;
+            const ady = ally.pos.y - enemy.pos.y;
+            const aDist = Math.sqrt(adx * adx + ady * ady);
+            if (aDist < minDist) {
+                minDist = aDist;
+                targetPos = { x: ally.pos.x, y: ally.pos.y };
+                targetType = 'ally';
+                targetRef = ally;
+            }
+        });
+
+        const bestBracket = weapon.brackets.reduce((prev, curr) => (curr.missChance < prev.missChance) ? curr : prev);
+        const stopDist = bestBracket.max - 5;
+
+        if (minDist > stopDist) {
+            const terrainMult = getTerrainSpeedMult(enemy.pos.x, enemy.pos.y);
+            const speed = enemy.speed * terrainMult;
+            enemy.pos.x += ((targetPos.x - enemy.pos.x) / minDist) * speed;
+            enemy.pos.y += ((targetPos.y - enemy.pos.y) / minDist) * speed;
+        }
+
+        handleCollisions();
+        enforceWorldBounds();
+        enemy.element.style.left = enemy.pos.x + 'px';
+        enemy.element.style.top = enemy.pos.y + 'px';
+
+// ... inside enemies.forEach ...
+        const now = Date.now();
+        const currentBracket = weapon.brackets.find(b => minDist >= b.min && minDist <= b.max);
+
+        if (currentBracket && currentBracket.missChance < 100 && (now - (enemy.lastAttack || 0) > weapon.speed)) {
+            
+            // --- THE FIX: Define these two variables first ---
+            const targetDodge = (targetType === 'player') ? gameState.dodge : (targetRef.dodge || 20);
+            const targetArmor = (targetType === 'player') ? gameState.currentArmor : (targetRef.armor || 'none');
+            const targetShield = (targetType === 'player') ? gameState.currentShield : (targetRef.shield || 'none');
+
+            // --- NOW this line will stop crashing ---
+            const result = getHitResult(enemy.weapon, minDist, targetDodge, targetArmor, targetShield);
+
+            if (weapon.isRanged) {
+                spawnArrow(enemy.pos.x + 8, enemy.pos.y + 12, targetPos.x + 8, targetPos.y + 12, false, result);
+            } else {
+                if (result.type !== "MISS") {
+                    if (targetType === 'player') {
+                        applyAttackToPlayer(result);
+                    } else {
+                        targetRef.hp -= result.damage;
+                        if (targetRef.hpFill) {
+                            const pct = Math.max(0, (targetRef.hp / targetRef.maxHp) * 100);
+                            targetRef.hpFill.style.width = pct + '%';
+                        }
+                        showFloatingText(targetRef.pos.x, targetRef.pos.y - 20, `-${result.damage}`, result.type);
+                    }
+                } else {
+                    showFloatingText(targetPos.x, targetPos.y - 20, "MISS", "miss");
+                }
+            }
+            enemy.lastAttack = now;
+        }
+    });
+
+    // 5. UPDATE PROJECTILES
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        const proj = projectiles[i];
+        proj.pos.x += proj.vel.x;
+        proj.pos.y += proj.vel.y;
+        proj.element.style.left = proj.pos.x + 'px';
+        proj.element.style.top = proj.pos.y + 'px';
+        proj.life--;
+
+        if (proj.isPlayer) {
+            // Player arrow hitting enemies
+            for (let j = enemies.length - 1; j >= 0; j--) {
+                const en = enemies[j];
+                const d = Math.sqrt(Math.pow(proj.pos.x - (en.pos.x + 8), 2) + Math.pow(proj.pos.y - (en.pos.y + 12), 2));
+                if (d < 15) {
+                    if (proj.result.type !== "MISS") applyCombatResult(en, proj.result);
+                    else showFloatingText(en.pos.x, en.pos.y - 20, "MISS", "miss");
+                    proj.life = 0;
+                    break; 
+                }
+            }
+        } else {
+            // Enemy arrow hitting Player OR Allies
+            let hitTarget = null;
+            const distToPlayer = Math.sqrt(Math.pow(proj.pos.x - (gameState.pos.x + 8), 2) + Math.pow(proj.pos.y - (gameState.pos.y + 12), 2));
+            
+            if (distToPlayer < 12) {
+                hitTarget = { type: 'player' };
+            } else {
+                for (let ally of allies) {
+                    const d = Math.sqrt(Math.pow(proj.pos.x - (ally.pos.x + 8), 2) + Math.pow(proj.pos.y - (ally.pos.y + 12), 2));
+                    if (d < 12) {
+                        hitTarget = { type: 'ally', ref: ally };
+                        break;
+                    }
+                }
+            }
+
+            if (hitTarget) {
+                if (proj.result.type !== "MISS") {
+                    if (hitTarget.type === 'player') {
+                        gameState.hp -= proj.result.damage;
+                        updateUI();
+                    } else {
+                        hitTarget.ref.hp -= proj.result.damage;
+                        showFloatingText(hitTarget.ref.pos.x, hitTarget.ref.pos.y - 20, `-${proj.result.damage}`, proj.result.type);
+                    }
+                } else {
+                    const showX = hitTarget.type === 'player' ? gameState.pos.x : hitTarget.ref.pos.x;
+                    const showY = hitTarget.type === 'player' ? gameState.pos.y : hitTarget.ref.pos.y;
+                    showFloatingText(showX, showY - 20, "MISS", "miss");
+                }
+                proj.life = 0;
+            }
+        }
+
+        if (proj.life <= 0) {
+            proj.element.remove();
+            projectiles.splice(i, 1);
+        }
+    }
+
+    // 6. FINAL CLEANUP
+    if (gameState.hp <= 0) {
+        alert("You fell in battle!");
+        location.reload();
+        return;
+    }
+
+    // Remove Dead Enemies
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        if (enemies[i].hp <= 0) {
+            enemies[i].element.remove(); 
+            enemies.splice(i, 1);
+        }
+    }
+
+    // Remove Dead Allies
+    for (let i = allies.length - 1; i >= 0; i--) {
+        if (allies[i].hp <= 0) {
+            allies[i].element.remove(); 
+            allies.splice(i, 1);
+        }
+    }
+    updateShopAvailability();
+    requestAnimationFrame(gameLoop);
+}
+
+// Initialize
+updateUI();
+gameLoop();
+
+</script>
+</body>
+</html>
