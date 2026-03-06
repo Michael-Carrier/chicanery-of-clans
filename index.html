@@ -124,6 +124,8 @@
             width: 100%; height: 100%;
             pointer-events: none; 
             z-index: 1000;
+            transform: none !important; /* Force no transform */
+            font-size: 16px; /* Reset base font size */
         }
 
         .resource-panel {
@@ -801,6 +803,13 @@ world.addEventListener('wheel', (e) => {
         camera.zoom = Math.max(camera.minZoom, Math.min(3, camera.zoom + delta)); // FIXED
         
         // Keep hero centered during zoom
+        //const playerCenterX = gameState.pos.x + 8;
+        //const playerCenterY = gameState.pos.y + 12;
+        //camera.x = playerCenterX - (window.innerWidth / 2 / camera.zoom);
+        //camera.y = playerCenterY - (window.innerHeight / 2 / camera.zoom);
+
+
+        // TRY to center on player - updateCamera() will clamp if needed
         const playerCenterX = gameState.pos.x + 8;
         const playerCenterY = gameState.pos.y + 12;
         camera.x = playerCenterX - (window.innerWidth / 2 / camera.zoom);
@@ -1093,32 +1102,36 @@ function enforceWorldBounds() {
 
 
 function updateCamera() {
-    // 1. Calculate the 'world units' visible on the screen at the current zoom
     const viewW = window.innerWidth / camera.zoom;
     const viewH = window.innerHeight / camera.zoom;
 
-    // 2. Set your 'No Man's Land' buffer (the dark area around the grass)
-    // Increase this to 800 or 1000 if you want even more 'desk space' around the map
-    const buffer = 800; 
+    // Asymmetric buffers - more on right for UI
+    const bufferTop = 500;
+    const bufferBottom = 500;
+    const bufferLeft = 500;
+    const bufferRight = 500; // Space for UI buttons
 
-    // 3. Define the total scrollable boundaries (Map Size + Buffer)
-    const minX = -buffer;
-    const minY = -buffer;
-    const maxX = 2000 + buffer - viewW;
-    const maxY = 2000 + buffer - viewH;
+    // Horizontal (X-axis) - account for right-side UI
+    if (viewW >= camera.worldWidth + bufferLeft + bufferRight) {
+        // Center in available space (shifted left to avoid UI)
+        camera.x = -bufferLeft + (viewW - camera.worldWidth - bufferLeft - bufferRight) / 2;
+    } else {
+        const minX = -bufferLeft;
+        const maxX = camera.worldWidth + bufferRight - viewW;
+        camera.x = Math.max(minX, Math.min(maxX, camera.x));
+    }
 
-    // 4. Apply Constraints
-    // If the map is smaller than the screen (zoomed way out), 
-    // we allow it to sit in the negative space comfortably.
-    camera.x = Math.max(minX, Math.min(maxX, camera.x));
-    camera.y = Math.max(minY, Math.min(maxY, camera.y));
+    // Vertical (Y-axis)
+    if (viewH >= camera.worldHeight + bufferTop + bufferBottom) {
+        camera.y = -bufferTop + (viewH - camera.worldHeight - bufferTop - bufferBottom) / 2;
+    } else {
+        const minY = -bufferTop;
+        const maxY = camera.worldHeight + bufferBottom - viewH;
+        camera.y = Math.max(minY, Math.min(maxY, camera.y));
+    }
 
-    // 5. Render the Transform
-    // We use translate first to move the 'camera' to the world coordinates,
-    // then scale everything up/down.
     canvas.style.transform = `scale(${camera.zoom}) translate(${-camera.x}px, ${-camera.y}px)`;
 }
-
 
 // --- DYNAMIC SPAWNER ---
 document.querySelectorAll('.spawn-btn').forEach(button => {
