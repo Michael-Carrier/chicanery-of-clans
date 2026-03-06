@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Warlord Mobile</title>
     <style>
 
@@ -792,7 +792,7 @@ world.addEventListener('wheel', (e) => {
         e.preventDefault();
         const oldZoom = camera.zoom;
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        camera.zoom = Math.max(0.5, Math.min(3, camera.zoom + delta));
+        camera.zoom = Math.max(0.2, Math.min(3, camera.zoom + zoomDelta));
         
         // Adjust camera to keep player centered
         const playerCenterX = gameState.pos.x + 8;
